@@ -1,3 +1,5 @@
+{-# LANGUAGE GADTs #-}
+
 module Plugin (plugin) where
 
 import Control.Concurrent.STM
@@ -5,78 +7,81 @@ import Control.Exception
 import Control.Monad
 import Data.IORef
 import GHC
+import GHC.Driver.Hooks
+import GHC.Driver.Pipeline
+import GHC.Driver.Pipeline.Phases
 import GHC.Plugins as Plugins
 import GHC.Types.Name.Cache
 import HieDb.Create
 import HieDb.Types
-import System.Directory (doesFileExist)
+import System.Directory (doesPathExist)
 import System.FilePath
 import qualified System.IO.Unsafe as Unsafe
 
 plugin :: Plugin
 plugin =
-    defaultPlugin
-        { installCoreToDos = install
-        , pluginRecompile = Plugins.purePlugin
-        , driverPlugin = driver
-        }
+  defaultPlugin
+    { pluginRecompile = Plugins.purePlugin
+    , driverPlugin = driver
+    }
 
 driver :: [CommandLineOption] -> HscEnv -> IO HscEnv
 driver _ hscEnv = do
-    let dynFlags = hsc_dflags hscEnv
-        hieDirectory = hieDir dynFlags
+  initializeHiedb
+  pure
+    hscEnv
+      { hsc_hooks =
+          (hsc_hooks hscEnv)
+            { runPhaseHook = Just phaseHook
+            }
+      }
+ where
+  initializeHiedb = liftIO $ withHieDb defaultHiedbFile initConn
 
-    liftIO $ atomically $ writeTVar hieDirDynflag hieDirectory
-    initializeHiedb
-    pure hscEnv
-  where
-    initializeHiedb = liftIO $ withHieDb defaultHiedbFile initConn
+  -- We index using a phase hook instead of typeCheckResultAction since
+  -- the hie file can be written after that plugin phase
+  phaseHook =
+    PhaseHook $ \phase -> do
+      case phase of
+        T_HscPostTc _ modSummary _ _ _ -> do
+          let dynFlags = hsc_dflags hscEnv
+              hieDirectory = hieDir dynFlags
+          _ <- liftIO $ addModuleToDb defaultHiedbFile (ms_mod modSummary) hieDirectory
+          runPhase phase
+        _ -> runPhase phase
 
-addModuleToDb :: FilePath -> Module -> IO ()
-addModuleToDb hiedbFile mod' = do
-    let
-        -- Note: For performance reasons we intentionally skip the type
-        -- indexing phase
-        -- TODO: pass this in as a user defined option
-        skipOptions = defaultSkipOptions{skipTypes = True}
-        modToPath = moduleNameSlashes . moduleName
+addModuleToDb :: FilePath -> Module -> Maybe FilePath -> IO ()
+addModuleToDb hiedbFile mod' mHieBaseDir = do
+  let
+    -- Note: For performance reasons we intentionally skip the type
+    -- indexing phase
+    -- TODO: pass this in as a user defined option
+    skipOptions = defaultSkipOptions{skipTypes = True}
+    modToPath = moduleNameSlashes . moduleName
 
-    mHieBaseDir <- liftIO $ readTVarIO hieDirDynflag
-    let mHieFile = ((</>) <$> mHieBaseDir) <*> pure (modToPath mod' -<.> ".hie")
+  let mHieFile = ((</>) <$> mHieBaseDir) <*> pure (modToPath mod' -<.> ".hie")
 
-    case mHieFile of
-        Nothing -> pure ()
-        Just hieFile -> do
-            hieExists <- doesFileExist hieFile
-            when hieExists $ do
-                _ <- acquireDbLock
-                nc <- newIORef =<< initNameCache 'a' []
-                _ <-
-                    withHieDb
-                        hiedbFile
-                        (\conn -> runDbM nc $ addRefsFrom conn (Just ".") skipOptions hieFile)
-                        -- If indexing fails we dont want to
-                        -- TODO: report this and maybe make configurable in future versions
-                        `catch` (\(_ :: SomeException) -> pure False)
-                _ <- releaseDbLock
-                pure ()
-  where
-    acquireDbLock =
-        liftIO $ atomically $ takeTMVar dbLock
-    releaseDbLock =
-        liftIO $ atomically $ putTMVar dbLock ()
-
--- We index on a pass to core since the .hiefile may not be available yet
--- after the typechecking phase is complete
-install :: [CommandLineOption] -> [CoreToDo] -> CoreM [CoreToDo]
-install _ todo = do
-    let pluginPass modGuts =
-            do
-                _ <- liftIO $ addModuleToDb defaultHiedbFile (mg_module modGuts)
-                pure modGuts
-        newTodo = todo ++ [CoreDoPluginPass "queue for indexing" pluginPass]
-
-    return newTodo
+  case mHieFile of
+    Nothing -> pure ()
+    Just hieFile -> do
+      hieExists <- doesPathExist hieFile
+      when hieExists $ do
+        _ <- acquireDbLock
+        nc <- newIORef =<< initNameCache 'a' []
+        _ <-
+          withHieDb
+            hiedbFile
+            (\conn -> runDbM nc $ addRefsFrom conn (Just ".") skipOptions hieFile)
+            -- If indexing fails we dont want to
+            -- TODO: report this and maybe make configurable in future versions
+            `catch` (\(_ :: SomeException) -> pure False)
+        _ <- releaseDbLock
+        pure ()
+ where
+  acquireDbLock =
+    liftIO $ atomically $ takeTMVar dbLock
+  releaseDbLock =
+    liftIO $ atomically $ putTMVar dbLock ()
 
 defaultHiedbFile :: String
 defaultHiedbFile = ".hiedb"
@@ -86,14 +91,8 @@ defaultHiedbFile = ".hiedb"
 -- to define global mutable state
 -----------------------------------------------------
 
--- | We need to keep track of the hie file from dynflags
-hieDirDynflag :: TVar (Maybe String)
-hieDirDynflag = Unsafe.unsafePerformIO $ newTVarIO Nothing
-{-# NOINLINE hieDirDynflag #-}
-
-{- | We need to ensure only one thread writes to the db at once since sqlite
-only maintains one WAL file and will throw an error on concurrent writes
--}
+-- | We need to ensure only one thread writes to the db at once since sqlite
+-- only maintains one WAL file and will throw an error on concurrent writes
 dbLock :: TMVar ()
 dbLock = Unsafe.unsafePerformIO $ newTMVarIO ()
 {-# NOINLINE dbLock #-}
