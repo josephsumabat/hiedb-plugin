@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTs #-}
 
-module Plugin (plugin) where
+module Plugin.HieDb (plugin) where
 
 import Control.Concurrent.STM
 import Control.Exception
@@ -60,7 +60,7 @@ addModuleToDb hiedbFile mod' mHieBaseDir = do
     modToPath = moduleNameSlashes . moduleName
 
   let mHieFile = do
-        hieBasedir <- mHieBaseDir
+        hieBaseDir <- mHieBaseDir
         pure (hieBaseDir </> modToPath mod' -<.> ".hie")
 
   case mHieFile of
