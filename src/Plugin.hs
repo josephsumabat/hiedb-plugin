@@ -59,7 +59,9 @@ addModuleToDb hiedbFile mod' mHieBaseDir = do
     skipOptions = defaultSkipOptions{skipTypes = True}
     modToPath = moduleNameSlashes . moduleName
 
-  let mHieFile = ((</>) <$> mHieBaseDir) <*> pure (modToPath mod' -<.> ".hie")
+  let mHieFile = do
+        hieBasedir <- mHieBaseDir
+        pure (hieBaseDir </> modToPath mod' -<.> ".hie")
 
   case mHieFile of
     Nothing -> pure ()
