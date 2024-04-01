@@ -68,22 +68,27 @@ addModuleToDb hiedbFile mod' mHieBaseDir = do
     Just hieFile -> do
       hieExists <- doesPathExist hieFile
       when hieExists $ do
-        _ <- acquireDbLock
-        nc <- newIORef =<< initNameCache 'a' []
-        _ <-
-          withHieDb
-            hiedbFile
-            (\conn -> runDbM nc $ addRefsFrom conn (Just ".") skipOptions hieFile)
-            -- If indexing fails we dont want to
-            -- TODO: report this and maybe make configurable in future versions
-            `catch` (\(_ :: SomeException) -> pure False)
-        _ <- releaseDbLock
+        _ <- withDbLock $ do
+          nc <- newIORef =<< initNameCache 'a' []
+          _ <-
+            withHieDb
+              hiedbFile
+              (\conn -> runDbM nc $ addRefsFrom conn (Just ".") skipOptions hieFile)
+              -- TODO: report this and maybe make configurable in future versions
+              `catch` (\(_ :: SomeException) -> pure False)
+          pure ()
         pure ()
  where
   acquireDbLock =
     liftIO $ atomically $ takeTMVar dbLock
   releaseDbLock =
     liftIO $ atomically $ putTMVar dbLock ()
+  -- Safely use a db lock - ensure the lock is released if an exception occurs
+  withDbLock :: IO () -> IO ()
+  withDbLock fn = do
+    acquireDbLock
+    fn `catch` (\(_ :: SomeException) -> pure ())
+    releaseDbLock
 
 defaultHiedbFile :: String
 defaultHiedbFile = ".hiedb"
