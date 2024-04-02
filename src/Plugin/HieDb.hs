@@ -87,9 +87,10 @@ addModuleToDb hiedbFile mod' mHieBaseDir = do
   -- Safely use a db lock - ensure the lock is released if an exception occurs
   withDbLock :: IO () -> IO ()
   withDbLock fn = do
-    acquireDbLock
-    fn `catch` (\(_ :: SomeException) -> pure ())
-    releaseDbLock
+    bracket
+      acquireDbLock
+      (\_ -> releaseDbLock)
+      (\_ -> fn `catch` (\(_ :: SomeException) -> pure ()))
 
 defaultHiedbFile :: String
 defaultHiedbFile = ".hiedb"
