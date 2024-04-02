@@ -46,12 +46,16 @@ driver _ hscEnv = do
         T_HscPostTc _ modSummary _ _ _ -> do
           let dynFlags = hsc_dflags hscEnv
               hieDirectory = hieDir dynFlags
-          _ <- liftIO $ addModuleToDb defaultHiedbFile (ms_mod modSummary) hieDirectory
+          _ <-
+            liftIO $
+              mapM
+                (addModuleToDb defaultHiedbFile $ ms_mod modSummary)
+                hieDirectory
           runPhase phase
         _ -> runPhase phase
 
-addModuleToDb :: FilePath -> Module -> Maybe FilePath -> IO ()
-addModuleToDb hiedbFile mod' mHieBaseDir = do
+addModuleToDb :: FilePath -> Module -> FilePath -> IO ()
+addModuleToDb hiedbFile mod' hieBaseDir = do
   let
     -- Note: For performance reasons we intentionally skip the type
     -- indexing phase
@@ -59,26 +63,21 @@ addModuleToDb hiedbFile mod' mHieBaseDir = do
     skipOptions = defaultSkipOptions{skipTypes = True}
     modToPath = moduleNameSlashes . moduleName
 
-  let mHieFile = do
-        hieBaseDir <- mHieBaseDir
-        pure (hieBaseDir </> modToPath mod' -<.> ".hie")
+  let hieFile = hieBaseDir </> modToPath mod' -<.> ".hie"
 
-  case mHieFile of
-    Nothing -> pure ()
-    Just hieFile -> do
-      absoluteHieFile <- makeAbsolute hieFile
-      hieExists <- doesPathExist absoluteHieFile
-      when hieExists $ do
-        _ <- withDbLock $ do
-          nc <- newIORef =<< initNameCache 'a' []
-          _ <-
-            withHieDb
-              hiedbFile
-              (\conn -> runDbM nc $ addRefsFrom conn (Just ".") skipOptions absoluteHieFile)
-              -- TODO: report this and maybe make configurable in future versions
-              `catch` (\(_ :: SomeException) -> pure False)
-          pure ()
-        pure ()
+  absoluteHieFile <- makeAbsolute hieFile
+  hieExists <- doesPathExist absoluteHieFile
+  when hieExists $ do
+    _ <- withDbLock $ do
+      nc <- newIORef =<< initNameCache 'a' []
+      _ <-
+        withHieDb
+          hiedbFile
+          (\conn -> runDbM nc $ addRefsFrom conn (Just ".") skipOptions absoluteHieFile)
+          -- TODO: report this and maybe make configurable in future versions
+          `catch` (\(_ :: SomeException) -> pure False)
+      pure ()
+    pure ()
  where
   acquireDbLock =
     liftIO $ atomically $ takeTMVar dbLock
