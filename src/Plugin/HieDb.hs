@@ -14,7 +14,7 @@ import GHC.Plugins as Plugins
 import GHC.Types.Name.Cache
 import HieDb.Create
 import HieDb.Types
-import System.Directory (doesPathExist)
+import System.Directory (doesPathExist, makeAbsolute)
 import System.FilePath
 import qualified System.IO.Unsafe as Unsafe
 
@@ -66,14 +66,15 @@ addModuleToDb hiedbFile mod' mHieBaseDir = do
   case mHieFile of
     Nothing -> pure ()
     Just hieFile -> do
-      hieExists <- doesPathExist hieFile
+      absoluteHieFile <- makeAbsolute hieFile
+      hieExists <- doesPathExist absoluteHieFile
       when hieExists $ do
         _ <- withDbLock $ do
           nc <- newIORef =<< initNameCache 'a' []
           _ <-
             withHieDb
               hiedbFile
-              (\conn -> runDbM nc $ addRefsFrom conn (Just ".") skipOptions hieFile)
+              (\conn -> runDbM nc $ addRefsFrom conn (Just ".") skipOptions absoluteHieFile)
               -- TODO: report this and maybe make configurable in future versions
               `catch` (\(_ :: SomeException) -> pure False)
           pure ()
