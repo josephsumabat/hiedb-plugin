@@ -1,0 +1,38 @@
+spec-version: 0.30.0
+name: hiedb-plugin
+author: Joseph Sumabat
+synopsis: See README on Github for more information 
+description: Automatically index in hiedb on recompiliation
+category: Development
+maintainer: josephrsumabat@gmail.com
+github: josephsumabat/hiedb-plugin
+license: MIT
+version: 0.1.0
+build-type: Simple
+extra-source-files:
+  - CHANGELOG.md
+  - README.md
+
+dependencies:
+  - base
+  - directory
+  - filepath
+  - ghc
+  - hiedb >= 0.6.0.0
+  - stm
+
+default-extensions:
+- FlexibleContexts
+- LambdaCase
+- NoFieldSelectors
+- OverloadedRecordDot
+- OverloadedStrings
+- ScopedTypeVariables
+
+ghc-options:
+  - -Wall
+
+library:
+  source-dirs: src
+  ghc-options:
+  - -fwrite-ide-info
