@@ -1,5 +1,5 @@
 # Revision history for hiedb-plugin
 
-## 0.1.0.0 -- YYYY-mm-dd
+## 0.1.0.0 -- 2024-04-02
 
-* First version. Released on an unsuspecting world.
+* Initial release

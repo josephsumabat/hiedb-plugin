@@ -30,12 +30,12 @@ library
     other-modules:
           Paths_hiedb_plugin
     build-depends:
-          base
-        , directory
-        , filepath
-        , ghc
-        , hiedb >=0.6.0.0
-        , stm
+          base >=4.17.0 && <4.20
+        , directory >=1.3.7 && <1.4
+        , filepath >=1.4.1 && <1.5
+        , ghc >=9.6.0 && <9.10
+        , hiedb >=0.6.0.0 && <0.7.0.0
+        , stm >=2.5.1.0 && <2.6.0.0
     hs-source-dirs:
           src
     default-extensions:
