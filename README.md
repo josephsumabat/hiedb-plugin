@@ -6,7 +6,7 @@ To use this plugin:
 
 - add the `hiedb-plugin` package as a build dependency of your package
 
-- add `ghc-options: -plugin-package hiedb-plugin -fplugin Plugin.Hiedb` to your package
+- add `ghc-options: -plugin-package hiedb-plugin -fplugin Plugin.HieDb` to your package
 
 Properties:
 - Requires `-hiedir` to be set.
